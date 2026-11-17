@@ -9,7 +9,7 @@ def main():
         colonnes=21,
         proportion_murs=0.25,
         nombre_victimes=4,
-        graine=42
+        graine=None
     )
 
     # Placer le robot au départ.

@@ -1,5 +1,5 @@
 import tkinter as tk
-
+from time import perf_counter
 from robot import observer
 from graphe import construire_graphe
 from exploration import choisir_chemin
@@ -14,6 +14,21 @@ def lancer_interface(
 ):
     taille_case = 40
     nombre_pas = 0
+    temps_calcul = 0.0
+    delais_detection = {}
+
+    def observer_et_mesurer():
+        observer(
+            carte_reelle,
+            carte_connue,
+            position_robot,
+            victimes_detectees
+        )
+
+        # Enregistrer uniquement la première détection.
+        for victime in victimes_detectees:
+            if victime not in delais_detection:
+                delais_detection[victime] = nombre_pas
 
     # Temps entre deux déplacements, en millisecondes.
     delai = 250
@@ -95,36 +110,51 @@ def lancer_interface(
             outline=""
         )
 
+                # Préparer le détail des premières détections.
+        detections = []
+
+        for victime, pas in sorted(delais_detection.items()):
+            detections.append(
+                f"Victime {victime} : découverte au pas {pas}"
+            )
+
+        texte_detections = "\n".join(detections)
+
+        if not texte_detections:
+            texte_detections = "Aucune victime détectée"
+
+        # Actualiser les informations affichées.
         informations.config(
             text=(
-                f"{etat} | Pas : {nombre_pas} | "
-                f"Victimes détectées : {len(victimes_detectees)}"
+                f"{etat}\n"
+                f"Déplacements : {nombre_pas} | "
+                f"Victimes détectées : {len(victimes_detectees)}\n"
+                f"Temps de calcul : {temps_calcul:.4f} s\n\n"
+                f"{texte_detections}"
             )
         )
-
     def un_pas():
         nonlocal position_robot, nombre_pas
-        nonlocal etat, terminee
+        nonlocal etat, terminee, temps_calcul
 
         if terminee:
             return
 
-        # Actualiser la mémoire avant toute décision.
-        observer(
-            carte_reelle,
-            carte_connue,
-            position_robot,
-            victimes_detectees
-        )
+        # Chronométrer les calculs sans inclure le dessin
+        # ni l'attente entre deux déplacements.
+        debut = perf_counter()
 
-        # La décision utilise seulement les passages connus.
+        observer_et_mesurer()
+
         graphe = construire_graphe(carte_connue)
 
         chemin, phase = choisir_chemin(
             carte_connue,
             graphe,
             position_robot,
-            depart
+            depart,
+            strategie="score",
+            poids_distance=1.0
         )
 
         if chemin is None:
@@ -140,19 +170,18 @@ def lancer_interface(
             terminee = True
 
         else:
-            # Exécuter seulement le premier pas du chemin.
             position_robot = chemin[0]
             nombre_pas += 1
             etat = phase
 
-            observer(
-                carte_reelle,
-                carte_connue,
-                position_robot,
-                victimes_detectees
-            )
+            observer_et_mesurer()
+
+        temps_calcul += perf_counter() - debut
 
         dessiner()
+
+        if terminee:
+            afficher_bilan()
 
     def boucle():
         nonlocal tache, lecture
@@ -197,7 +226,7 @@ def lancer_interface(
     def recommencer():
         nonlocal position_robot, nombre_pas
         nonlocal lecture, terminee, tache, etat
-
+        nonlocal temps_calcul
         lecture = False
 
         if tache is not None:
@@ -206,6 +235,8 @@ def lancer_interface(
 
         position_robot = depart
         nombre_pas = 0
+        temps_calcul = 0.0
+        delais_detection.clear()
         terminee = False
         etat = "Prêt"
 
@@ -216,16 +247,30 @@ def lancer_interface(
 
         victimes_detectees.clear()
 
-        observer(
-            carte_reelle,
-            carte_connue,
-            position_robot,
-            victimes_detectees
-        )
+        observer_et_mesurer()
 
         bouton_lecture.config(text="Lecture")
         dessiner()
+    def afficher_bilan():
+        print("\n--- Bilan de la simulation ---")
+        print("État :", etat)
+        print("Déplacements, retour inclus :", nombre_pas)
+        print(f"Temps de calcul cumulé : {temps_calcul:.6f} s")
+        print("Robot au départ :", position_robot == depart)
 
+        # La carte réelle sert ici uniquement à évaluer les résultats.
+        for ligne in range(len(carte_reelle)):
+            for colonne in range(len(carte_reelle[ligne])):
+                if carte_reelle[ligne][colonne] == "V":
+                    victime = (ligne, colonne)
+
+                    if victime in delais_detection:
+                        print(
+                            f"Victime {victime} : détectée après "
+                            f"{delais_detection[victime]} pas"
+                        )
+                    else:
+                        print(f"Victime {victime} : non détectée") 
     tk.Button(
         commandes,
         text="Un déplacement",

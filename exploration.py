@@ -110,8 +110,61 @@ def chercher_chemin(graphe, depart, cibles):
     return None
 
 
-def choisir_chemin(carte, graphe, position, depart):
-    """Choisir un passage près d'une frontière, sinon rentrer."""
+def gain_information(carte, cible):
+    """Compter les cases inconnues dans le carré 3 × 3."""
+    ligne, colonne = cible
+    gain = 0
+
+    for l in range(ligne - 1, ligne + 2):
+        for c in range(colonne - 1, colonne + 2):
+            if 0 <= l < len(carte):
+                if 0 <= c < len(carte[l]):
+                    if carte[l][c] == "?":
+                        gain += 1
+
+    return gain
+
+
+def parcours_distances(graphe, depart):
+    """Un seul BFS pour calculer les distances et les parents."""
+    file = deque([depart])
+    distances = {depart: 0}
+    parents = {depart: None}
+
+    while file:
+        sommet = file.popleft()
+
+        # Trier les voisins garantit un ordre fixe.
+        for voisin in sorted(graphe[sommet]):
+            if voisin not in distances:
+                distances[voisin] = distances[sommet] + 1
+                parents[voisin] = sommet
+                file.append(voisin)
+
+    return distances, parents
+
+
+def choisir_chemin(
+    carte,
+    graphe,
+    position,
+    depart,
+    strategie="proche",
+    poids_distance=1.0
+):
+    if strategie not in ("proche", "score"):
+        raise ValueError("Stratégie attendue : proche ou score.")
+
+    if poids_distance < 0:
+        raise ValueError("Le poids de la distance doit être positif ou nul.")
+
+    if position not in graphe:
+        return None, "Erreur"
+
+    # Calculer les distances sur le graphe connu.
+    distances, parents = parcours_distances(graphe, position)
+
+    # Détecter les frontières avec WFD.
     frontieres = detecter_frontieres(carte, position)
     cibles = set()
 
@@ -119,13 +172,52 @@ def choisir_chemin(carte, graphe, position, depart):
         for case in groupe:
             for voisine in voisines(carte, case):
 
-                # La destination doit être un sommet connu.
-                if voisine in graphe:
-                    cibles.add(voisine)
+                # La cible doit être connue et accessible.
+                if voisine in distances:
+                    if gain_information(carte, voisine) > 0:
+                        cibles.add(voisine)
 
     if cibles:
-        chemin = chercher_chemin(graphe, position, cibles)
-        return chemin, "Exploration"
+        if strategie == "proche":
+            # Distance minimale, puis coordonnées en cas d'égalité.
+            cible = min(
+                cibles,
+                key=lambda case: (distances[case], case)
+            )
 
-    chemin = chercher_chemin(graphe, position, {depart})
-    return chemin, "Retour"
+        else:
+            # Score maximal :
+            # gain d'information - poids × distance.
+            # En cas d'égalité : distance minimale, puis coordonnées.
+            cible = min(
+                cibles,
+                key=lambda case: (
+                    -(
+                        gain_information(carte, case)
+                        - poids_distance * distances[case]
+                    ),
+                    distances[case],
+                    case
+                )
+            )
+
+        phase = "Exploration"
+
+    else:
+        cible = depart
+        phase = "Retour"
+
+    if cible not in distances:
+        return None, phase
+
+    # Reconstruire le chemin vers la cible choisie.
+    chemin = []
+    case = cible
+
+    while case != position:
+        chemin.append(case)
+        case = parents[case]
+
+    chemin.reverse()
+
+    return chemin, phase
