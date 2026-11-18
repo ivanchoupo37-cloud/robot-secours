@@ -80,4 +80,25 @@ carte_reelle, depart = generer_batiment(
     nombre_victimes=4,
     graine=42
 )
+def effondrer_case(carte, case, depart, position_robot):
+    """Transformer une case libre en mur, si elle est autorisée."""
+    ligne, colonne = case
 
+    if case == depart or case == position_robot:
+        return False
+
+    # Seules les cases libres peuvent s'effondrer.
+    # Cela protège aussi les victimes.
+    if carte[ligne][colonne] != ".":
+        return False
+
+    carte[ligne][colonne] = "#"
+    return True
+if __name__ == "__main__":
+    carte_reelle, depart = generer_batiment(
+        lignes=10,
+        colonnes=15,
+        proportion_murs=0.15,
+        nombre_victimes=4,
+        graine=42
+    )

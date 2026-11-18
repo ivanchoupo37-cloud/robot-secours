@@ -23,7 +23,7 @@ def main():
 
     # Aucune victime détectée au départ.
     victimes_detectees = set()
-
+    position_robot = depart
     # Lancer l'interface et les commandes d'exploration.
     lancer_interface(
         carte_reelle,

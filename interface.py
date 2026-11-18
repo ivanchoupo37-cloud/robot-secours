@@ -1,4 +1,6 @@
 import tkinter as tk
+import random
+from environnement import effondrer_case
 from time import perf_counter
 from robot import observer
 from graphe import construire_graphe
@@ -16,6 +18,12 @@ def lancer_interface(
     nombre_pas = 0
     temps_calcul = 0.0
     delais_detection = {}
+    # Garder le bâtiment initial pour le bouton Recommencer.
+    carte_initiale = [ligne[:] for ligne in carte_reelle]
+
+    maximum_effondrements = 5
+    cases_effondrees = []
+    prochain_effondrement = random.randint(10, 20)
 
     def observer_et_mesurer():
         observer(
@@ -75,7 +83,7 @@ def lancer_interface(
             "Bleu : mur | Gris : inconnu"
         )
     ).pack(pady=5)
-
+    
     def dessiner():
         canvas.delete("all")
 
@@ -136,16 +144,14 @@ def lancer_interface(
     def un_pas():
         nonlocal position_robot, nombre_pas
         nonlocal etat, terminee, temps_calcul
-
+        nonlocal prochain_effondrement
         if terminee:
             return
 
-        # Chronométrer les calculs sans inclure le dessin
-        # ni l'attente entre deux déplacements.
         debut = perf_counter()
+        # Reconstruire le graphe et recalculer le chemin.
 
         observer_et_mesurer()
-
         graphe = construire_graphe(carte_connue)
 
         chemin, phase = choisir_chemin(
@@ -157,8 +163,67 @@ def lancer_interface(
             poids_distance=1.0
         )
 
+                # Déclencher un effondrement à un intervalle aléatoire.
+        if (
+            nombre_pas >= prochain_effondrement
+            and len(cases_effondrees) < maximum_effondrements
+        ):
+            candidates = []
+
+            # Chercher les cases libres autorisées.
+            for ligne in range(len(carte_reelle)):
+                for colonne in range(len(carte_reelle[ligne])):
+                    case = (ligne, colonne)
+
+                    if (
+                        carte_reelle[ligne][colonne] == "."
+                        and case != depart
+                        and case != position_robot
+                    ):
+                        candidates.append(case)
+
+            if candidates:
+                case = random.choice(candidates)
+
+                changement = effondrer_case(
+                    carte_reelle,
+                    case,
+                    depart,
+                    position_robot
+                )
+
+                if changement:
+                    cases_effondrees.append(case)
+
+                    print(
+                        f"Effondrement {len(cases_effondrees)} "
+                        f"au pas {nombre_pas} : case {case}"
+                    )
+
+                    # Le robot découvre uniquement les changements
+                    # qui sont à portée de son capteur.
+                    observer_et_mesurer()
+
+                    graphe = construire_graphe(carte_connue)
+
+                    chemin, phase = choisir_chemin(
+                        carte_connue,
+                        graphe,
+                        position_robot,
+                        depart,
+                        strategie="score",
+                        poids_distance=1.0
+                    )
+
+            # Prévoir le prochain événement.
+            prochain_effondrement = (
+                nombre_pas + random.randint(10, 20)
+            )
+
+                
+
         if chemin is None:
-            etat = "Erreur : aucune route accessible"
+            etat = "Mission interrompue : aucun chemin connu vers le départ"
             terminee = True
 
         elif not chemin:
@@ -170,11 +235,18 @@ def lancer_interface(
             terminee = True
 
         else:
-            position_robot = chemin[0]
-            nombre_pas += 1
-            etat = phase
+            prochaine_case = chemin[0]
+            ligne, colonne = prochaine_case
 
-            observer_et_mesurer()
+            # Vérifier la case observée avant de déplacer le robot.
+            if carte_connue[ligne][colonne] not in (".", "V"):
+                etat = "Obstacle détecté : nouveau calcul nécessaire"
+            else:
+                position_robot = prochaine_case
+                nombre_pas += 1
+                etat = phase
+
+                observer_et_mesurer()
 
         temps_calcul += perf_counter() - debut
 
@@ -227,6 +299,7 @@ def lancer_interface(
         nonlocal position_robot, nombre_pas
         nonlocal lecture, terminee, tache, etat
         nonlocal temps_calcul
+        nonlocal prochain_effondrement
         lecture = False
 
         if tache is not None:
@@ -239,7 +312,12 @@ def lancer_interface(
         delais_detection.clear()
         terminee = False
         etat = "Prêt"
+                # Restaurer le bâtiment avant l'effondrement.
+        for ligne in range(len(carte_reelle)):
+            carte_reelle[ligne][:] = carte_initiale[ligne][:]
 
+        cases_effondrees.clear()
+        prochain_effondrement = random.randint(10, 20)
         # Effacer la mémoire, en conservant le même bâtiment.
         for ligne in range(len(carte_connue)):
             for colonne in range(len(carte_connue[ligne])):
@@ -291,12 +369,7 @@ def lancer_interface(
     ).pack(side=tk.LEFT, padx=5)
 
     # Faire la première observation avant l'affichage.
-    observer(
-        carte_reelle,
-        carte_connue,
-        position_robot,
-        victimes_detectees
-    )
+    observer_et_mesurer()
 
     dessiner()
     fenetre.mainloop()
